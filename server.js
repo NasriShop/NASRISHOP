@@ -182,5 +182,11 @@ app.get('/api/orders', (req, res) => {
 app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
-
+// مسار مؤقت لمسح المنتجات القديمة الثقيلة
+app.get('/api/clear-products', (req, res) => {
+    db.query('TRUNCATE TABLE products', (err) => {
+        if (err) return res.status(500).send('❌ خطأ: ' + err.message);
+        res.send('✅ تم مسح جميع المنتجات القديمة بنجاح! يمكنك الآن إضافة منتجات جديدة.');
+    });
+});
 app.listen(PORT, () => console.log(`🚀 NasriShop Server Running on Port ${PORT}`));
