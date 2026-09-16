@@ -31,7 +31,7 @@ const db = mysql.createPool({
     ssl: { rejectUnauthorized: false }
 });
 
-// مسار مسح المنتجات القديمة
+// مسار تفريغ المنتجات القديمة المكسورة
 app.get('/api/clear-products', (req, res) => {
     db.query('TRUNCATE TABLE products', (err) => {
         if (err) return res.status(500).send('❌ خطأ: ' + err.message);
@@ -39,36 +39,28 @@ app.get('/api/clear-products', (req, res) => {
     });
 });
 
-// 1. جلب المنتجات مع ضمان مسميات الصور للواجهة
-const handleGetProducts = (req, res) => {
+// جلب المنتجات مع مطابقة كافة حقول الصور
+app.get(['/api/products', '/api/admin/products'], (req, res) => {
     db.query('SELECT * FROM products ORDER BY id DESC', (err, results) => {
         if (err) return res.status(500).json({ error: err.message });
-        const formatted = results.map(p => {
-            const img = p.image_url || p.image || 'https://via.placeholder.com/300?text=No+Image';
-            return {
-                id: p.id,
-                name: p.name || 'منتج',
-                title: p.name || 'منتج',
-                category: p.category || '',
-                price: p.price || 0,
-                old_price: p.old_price || 0,
-                oldPrice: p.old_price || 0,
-                image_url: img,
-                image: img,
-                imageUrl: img,
-                src: img,
-                badge: p.badge || '',
-                description: p.description || ''
-            };
-        });
+        const formatted = results.map(p => ({
+            id: p.id,
+            name: p.name || 'منتج',
+            title: p.name || 'منتج',
+            category: p.category || '',
+            price: p.price || 0,
+            old_price: p.old_price || 0,
+            image_url: p.image_url || 'https://via.placeholder.com/300',
+            image: p.image_url || 'https://via.placeholder.com/300',
+            badge: p.badge || '',
+            description: p.description || ''
+        }));
         res.json(formatted);
     });
-};
+});
 
-app.get(['/api/products', '/api/admin/products'], handleGetProducts);
-
-// 2. إضافة منتج جديد مع رفع سحابي
-const handleAddProduct = async (req, res) => {
+// إضافة منتج مع رفع سحابي مباشر
+app.post(['/api/products', '/api/admin/products'], upload.any(), async (req, res) => {
     try {
         let name = req.body.name || req.body.title || 'منتج جديد';
         let category = req.body.category || 'عام';
@@ -76,18 +68,22 @@ const handleAddProduct = async (req, res) => {
         let old_price = req.body.old_price || req.body.oldPrice || 0;
         let badge = req.body.badge || '';
         let description = req.body.description || '';
-        let image_url = req.body.image_url || req.body.image || req.body.imageUrl || '';
+        let image_url = req.body.image_url || req.body.image || '';
 
-        if (req.file) {
+        // إذا تم إرسال ملف من الواجهة
+        if (req.files && req.files.length > 0) {
+            const file = req.files[0];
             const result = await new Promise((resolve, reject) => {
                 const stream = cloudinary.uploader.upload_stream(
                     { folder: 'nasrishop' },
                     (error, result) => { if (result) resolve(result); else reject(error); }
                 );
-                stream.end(req.file.buffer);
+                stream.end(file.buffer);
             });
             image_url = result.secure_url;
-        } else if (image_url && image_url.startsWith('data:image')) {
+        } 
+        // إذا أُرْسِلَت الصورة كـ Base64
+        else if (image_url && image_url.startsWith('data:image')) {
             const uploaded = await cloudinary.uploader.upload(image_url, { folder: 'nasrishop' });
             image_url = uploaded.secure_url;
         }
@@ -98,55 +94,52 @@ const handleAddProduct = async (req, res) => {
             res.json({ success: true, message: 'تم حفظ المنتج بنجاح', id: result.insertId, image_url });
         });
     } catch (error) {
-        res.status(500).json({ error: 'خطأ في رفع الصورة' });
+        res.status(500).json({ error: 'خطأ أثناء رفع الصورة' });
     }
-};
+});
 
-app.post(['/api/products', '/api/admin/products'], upload.single('image_file'), handleAddProduct);
-
-// 3. تعديل منتج قائم (Update Product)
-app.put(['/api/products/:id', '/api/admin/products/:id'], upload.single('image_file'), async (req, res) => {
+// خاصية تعديل منتج (UPDATE)
+app.put(['/api/products/:id', '/api/admin/products/:id'], upload.any(), async (req, res) => {
     try {
-        const productId = req.params.id;
-        let name = req.body.name || req.body.title;
-        let category = req.body.category;
-        let price = req.body.price;
-        let old_price = req.body.old_price || req.body.oldPrice;
-        let badge = req.body.badge;
-        let description = req.body.description;
+        const id = req.params.id;
+        const name = req.body.name || req.body.title;
+        const price = req.body.price;
+        const old_price = req.body.old_price;
+        const category = req.body.category;
         let image_url = req.body.image_url || req.body.image;
 
-        if (req.file) {
+        if (req.files && req.files.length > 0) {
+            const file = req.files[0];
             const result = await new Promise((resolve, reject) => {
                 const stream = cloudinary.uploader.upload_stream(
                     { folder: 'nasrishop' },
                     (error, result) => { if (result) resolve(result); else reject(error); }
                 );
-                stream.end(req.file.buffer);
+                stream.end(file.buffer);
             });
             image_url = result.secure_url;
         }
 
-        const sql = `UPDATE products SET name=?, category=?, price=?, old_price=?, image_url=COALESCE(NULLIF(?, ''), image_url), badge=?, description=? WHERE id=?`;
-        db.query(sql, [name, category, price, old_price, image_url, badge, description, productId], (err, result) => {
+        const sql = `UPDATE products SET name=?, price=?, old_price=?, category=?, image_url=COALESCE(NULLIF(?, ''), image_url) WHERE id=?`;
+        db.query(sql, [name, price, old_price, category, image_url, id], (err) => {
             if (err) return res.status(500).json({ error: err.message });
-            res.json({ success: true, message: 'تم تعديل المنتج بنجاح' });
+            res.json({ success: true, message: 'تم التعديل بنجاح' });
         });
     } catch (error) {
-        res.status(500).json({ error: 'خطأ في تعديل المنتج' });
+        res.status(500).json({ error: 'خطأ في التعديل' });
     }
 });
 
-// 4. حذف منتج (Delete Product)
+// خاصية حذف منتج (DELETE)
 app.delete(['/api/products/:id', '/api/admin/products/:id'], (req, res) => {
-    const productId = req.params.id;
-    db.query('DELETE FROM products WHERE id = ?', [productId], (err, result) => {
+    const id = req.params.id;
+    db.query('DELETE FROM products WHERE id = ?', [id], (err) => {
         if (err) return res.status(500).json({ error: err.message });
-        res.json({ success: true, message: 'تم حذف المنتج بنجاح' });
+        res.json({ success: true, message: 'تم الحذف بنجاح' });
     });
 });
 
-// 5. إدارة الطلبات
+// إدارة الطلبات
 app.post('/api/orders', (req, res) => {
     const { customer_name, phone, wilaya, baladia, product_name, price, shipping_price, total_price, shipping_type } = req.body;
     const sql = `INSERT INTO orders (customer_name, phone, wilaya, baladia, product_name, price, shipping_price, total_price, shipping_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
@@ -163,8 +156,6 @@ app.get('/api/orders', (req, res) => {
     });
 });
 
-app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
+app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
-app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 Server on port ${PORT}`));
