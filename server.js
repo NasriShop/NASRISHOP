@@ -1,17 +1,14 @@
 const express = require('express');
 const mysql = require('mysql2');
 const path = require('path');
+
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-// Middleware لتمرير البيانات كـ JSON ومعالجة Form Data
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
-// خدمة الملفات الثابتة من مجلد public
 app.use(express.static(path.join(__dirname, 'public')));
 
-// إعداد اتصال قاعدة البيانات MySQL المباشر بخادم Aiven مع دعم تشفير SSL
 const db = mysql.createPool({
     host: 'nasri-mysql-zoubirimp2026-288b.b.aivencloud.com',
     port: 18434,
@@ -26,104 +23,94 @@ const db = mysql.createPool({
     }
 });
 
-// اختبار الاتصال بقاعدة البيانات عند بدء التشغيل
+// إنشاء الجداول تلقائياً إن لم تكن موجودة
+const initDB = () => {
+    const createProductsTable = `
+        CREATE TABLE IF NOT EXISTS products (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            name VARCHAR(255) NOT NULL,
+            category VARCHAR(100),
+            price DECIMAL(10, 2) NOT NULL,
+            old_price DECIMAL(10, 2),
+            image_url TEXT,
+            badge VARCHAR(50),
+            description TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );`;
+
+    const createOrdersTable = `
+        CREATE TABLE IF NOT EXISTS orders (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            customer_name VARCHAR(255) NOT NULL,
+            phone VARCHAR(50) NOT NULL,
+            wilaya VARCHAR(100) NOT NULL,
+            baladia VARCHAR(100) NOT NULL,
+            product_name VARCHAR(255) NOT NULL,
+            price DECIMAL(10, 2) NOT NULL,
+            shipping_price DECIMAL(10, 2) NOT NULL,
+            total_price DECIMAL(10, 2) NOT NULL,
+            shipping_type VARCHAR(50),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );`;
+
+    db.query(createProductsTable, (err) => {
+        if (err) console.error('❌ خطأ في إنشاء جدول المنتجات:', err.message);
+        else console.log('✅ جدول المنتجات جاهز.');
+    });
+
+    db.query(createOrdersTable, (err) => {
+        if (err) console.error('❌ خطأ في إنشاء جدول الطلبات:', err.message);
+        else console.log('✅ جدول الطلبات جاهز.');
+    });
+};
+
 db.getConnection((err, connection) => {
     if (err) {
         console.error('❌ خطأ في الاتصال بقاعدة البيانات:', err.message);
     } else {
         console.log('✅ تم الاتصال بقاعدة البيانات بنجاح!');
         connection.release();
+        initDB();
     }
 });
 
-// ==================== API Endpoints ====================
-
-// 1. جلب جميع المنتجات
+// API Endpoints
 app.get('/api/products', (req, res) => {
-    const sql = 'SELECT * FROM products ORDER BY id DESC';
-    db.query(sql, (err, results) => {
-        if (err) {
-            console.error('خطأ في جلب المنتجات:', err);
-            return res.status(500).json({ error: 'حدث خطأ أثناء جلب المنتجات' });
-        }
+    db.query('SELECT * FROM products ORDER BY id DESC', (err, results) => {
+        if (err) return res.status(500).json({ error: err.message });
         res.json(results);
     });
 });
 
-// 2. إضافة منتج جديد
 app.post('/api/products', (req, res) => {
     const { name, category, price, old_price, image_url, badge, description } = req.body;
-    const sql = `INSERT INTO products (name, category, price, old_price, image_url, badge, description) 
-                 VALUES (?, ?, ?, ?, ?, ?, ?)`;
-    
+    const sql = `INSERT INTO products (name, category, price, old_price, image_url, badge, description) VALUES (?, ?, ?, ?, ?, ?, ?)`;
     db.query(sql, [name, category, price, old_price, image_url, badge, description], (err, result) => {
-        if (err) {
-            console.error('خطأ في إضافة المنتج:', err);
-            return res.status(500).json({ error: err.message });
-        }
+        if (err) return res.status(500).json({ error: err.message });
         res.json({ success: true, message: 'تم حفظ المنتج بنجاح', id: result.insertId });
     });
 });
 
-// 3. جلب أسعار التوصيل حسب الولاية
-app.get('/api/shipping', (req, res) => {
-    const sql = 'SELECT * FROM shipping_rates';
-    db.query(sql, (err, results) => {
-        if (err) {
-            console.error('خطأ في جلب أسعار التوصيل:', err);
-            return res.status(500).json({ error: 'حدث خطأ أثناء جلب أسعار التوصيل' });
-        }
-        res.json(results);
-    });
-});
-
-// 4. تحديث سعر التوصيل لولاية معينة
-app.post('/api/shipping/update', (req, res) => {
-    const { wilaya_id, home_price, desk_price } = req.body;
-    const sql = `UPDATE shipping_rates SET home_price = ?, desk_price = ? WHERE wilaya_id = ?`;
-    
-    db.query(sql, [home_price, desk_price, wilaya_id], (err, result) => {
-        if (err) {
-            console.error('خطأ في تحديث أسعار التوصيل:', err);
-            return res.status(500).json({ error: err.message });
-        }
-        res.json({ success: true, message: 'تم تحديث أسعار التوصيل بنجاح' });
-    });
-});
-
-// 5. استقبال طلب جديد من الزبون
 app.post('/api/orders', (req, res) => {
     const { customer_name, phone, wilaya, baladia, product_name, price, shipping_price, total_price, shipping_type } = req.body;
-    const sql = `INSERT INTO orders (customer_name, phone, wilaya, baladia, product_name, price, shipping_price, total_price, shipping_type, created_at) 
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`;
-    
+    const sql = `INSERT INTO orders (customer_name, phone, wilaya, baladia, product_name, price, shipping_price, total_price, shipping_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
     db.query(sql, [customer_name, phone, wilaya, baladia, product_name, price, shipping_price, total_price, shipping_type], (err, result) => {
-        if (err) {
-            console.error('خطأ في تسجيل الطلب:', err);
-            return res.status(500).json({ error: err.message });
-        }
+        if (err) return res.status(500).json({ error: err.message });
         res.json({ success: true, message: 'تم تسجيل الطلب بنجاح', orderId: result.insertId });
     });
 });
 
-// 6. جلب قائمة الطلبات للوحة التحكم
 app.get('/api/orders', (req, res) => {
-    const sql = 'SELECT * FROM orders ORDER BY id DESC';
-    db.query(sql, (err, results) => {
-        if (err) {
-            console.error('خطأ في جلب الطلبات:', err);
-            return res.status(500).json({ error: 'حدث خطأ أثناء جلب الطلبات' });
-        }
+    db.query('SELECT * FROM orders ORDER BY id DESC', (err, results) => {
+        if (err) return res.status(500).json({ error: err.message });
         res.json(results);
     });
 });
 
-// توجيه باقي المسارات إلى الصفحة الرئيسية index.html
 app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// تشغيل الخادم
 app.listen(PORT, () => {
     console.log(`🚀 السيرفر يعمل بنجاح على المنفذ: ${PORT}`);
 });
