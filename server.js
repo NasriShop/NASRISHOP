@@ -13,19 +13,19 @@ app.use(express.urlencoded({ extended: true }));
 // خدمة الملفات الثابتة من مجلد public
 app.use(express.static(path.join(__dirname, 'public')));
 
-// إعداد اتصال قاعدة البيانات MySQL مع دعم تشفير SSL لخوادم Aiven
+// إعداد اتصال قاعدة البيانات MySQL المباشر بخادم Aiven مع دعم تشفير SSL
 const db = mysql.createPool({
-    host: process.env.DB_HOST || 'localhost',
-    port: process.env.DB_PORT || 3306,
-    user: process.env.DB_USER || 'root',
-    password: process.env.DB_PASSWORD || '',
+    host: 'nasri-mysql-zoubirimp2026-288b.b.aivencloud.com',
+    port: 18434,
+    user: 'avnadmin',
+    password: process.env.DB_PASSWORD || 'AVNS_rfdqSTbrD91DIqSQtUZ',
     database: process.env.DB_NAME || 'nasrishop_db',
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0,
-    ssl: process.env.DB_HOST && process.env.DB_HOST.includes('aivencloud.com') ? {
+    ssl: {
         rejectUnauthorized: false
-    } : false
+    }
 });
 
 // اختبار الاتصال بقاعدة البيانات عند بدء التشغيل
