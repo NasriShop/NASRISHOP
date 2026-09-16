@@ -5,10 +5,13 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// حل مشكلة 413: رفع حد حجم البيانات والصور المقبولة إلى 50 ميقابايت
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
+
 app.use(express.static(path.join(__dirname, 'public')));
 
+// الاتصال المباشر بقاعدة البيانات Aiven
 const db = mysql.createPool({
     host: 'nasri-mysql-zoubirimp2026-288b.b.aivencloud.com',
     port: 18434,
@@ -23,7 +26,7 @@ const db = mysql.createPool({
     }
 });
 
-// إنشاء الجداول تلقائياً إن لم تكن موجودة
+// إنشاء الجداول تلقائياً عند التشغيل
 const initDB = () => {
     const createProductsTable = `
         CREATE TABLE IF NOT EXISTS products (
@@ -32,7 +35,7 @@ const initDB = () => {
             category VARCHAR(100),
             price DECIMAL(10, 2) NOT NULL,
             old_price DECIMAL(10, 2),
-            image_url TEXT,
+            image_url LONGTEXT,
             badge VARCHAR(50),
             description TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -74,22 +77,30 @@ db.getConnection((err, connection) => {
     }
 });
 
-// API Endpoints
-app.get('/api/products', (req, res) => {
+// ================= API Endpoints =================
+
+// دعم المسارين لضمان عدم حدوث خطأ 404 سواً استخدمت /api/products أو /api/admin/products
+const handleGetProducts = (req, res) => {
     db.query('SELECT * FROM products ORDER BY id DESC', (err, results) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json(results);
     });
-});
+};
 
-app.post('/api/products', (req, res) => {
+const handleAddProduct = (req, res) => {
     const { name, category, price, old_price, image_url, badge, description } = req.body;
     const sql = `INSERT INTO products (name, category, price, old_price, image_url, badge, description) VALUES (?, ?, ?, ?, ?, ?, ?)`;
     db.query(sql, [name, category, price, old_price, image_url, badge, description], (err, result) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json({ success: true, message: 'تم حفظ المنتج بنجاح', id: result.insertId });
     });
-});
+};
+
+app.get('/api/products', handleGetProducts);
+app.get('/api/admin/products', handleGetProducts);
+
+app.post('/api/products', handleAddProduct);
+app.post('/api/admin/products', handleAddProduct);
 
 app.post('/api/orders', (req, res) => {
     const { customer_name, phone, wilaya, baladia, product_name, price, shipping_price, total_price, shipping_type } = req.body;
