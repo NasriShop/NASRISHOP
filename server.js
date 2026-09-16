@@ -5,13 +5,10 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-// حل مشكلة 413: رفع حد حجم البيانات والصور المقبولة إلى 50 ميقابايت
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
-
 app.use(express.static(path.join(__dirname, 'public')));
 
-// الاتصال المباشر بقاعدة البيانات Aiven
 const db = mysql.createPool({
     host: 'nasri-mysql-zoubirimp2026-288b.b.aivencloud.com',
     port: 18434,
@@ -26,73 +23,31 @@ const db = mysql.createPool({
     }
 });
 
-// إنشاء الجداول تلقائياً عند التشغيل
-const initDB = () => {
-    const createProductsTable = `
-        CREATE TABLE IF NOT EXISTS products (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            name VARCHAR(255) NOT NULL,
-            category VARCHAR(100),
-            price DECIMAL(10, 2) NOT NULL,
-            old_price DECIMAL(10, 2),
-            image_url LONGTEXT,
-            badge VARCHAR(50),
-            description TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );`;
+// معالجة إضافة المنتج بمرونة لتفادي خطأ Column cannot be null
+const handleAddProduct = (req, res) => {
+    // قراءة البيانات بغض النظر عن المسمى المعتمد في الواجهة الأمامية
+    const name = req.body.name || req.body.title || req.body.product_name || 'منتج جديد';
+    const category = req.body.category || 'عام';
+    const price = req.body.price || 0;
+    const old_price = req.body.old_price || req.body.oldPrice || null;
+    const image_url = req.body.image_url || req.body.image || req.body.imageUrl || '';
+    const badge = req.body.badge || '';
+    const description = req.body.description || '';
 
-    const createOrdersTable = `
-        CREATE TABLE IF NOT EXISTS orders (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            customer_name VARCHAR(255) NOT NULL,
-            phone VARCHAR(50) NOT NULL,
-            wilaya VARCHAR(100) NOT NULL,
-            baladia VARCHAR(100) NOT NULL,
-            product_name VARCHAR(255) NOT NULL,
-            price DECIMAL(10, 2) NOT NULL,
-            shipping_price DECIMAL(10, 2) NOT NULL,
-            total_price DECIMAL(10, 2) NOT NULL,
-            shipping_type VARCHAR(50),
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );`;
-
-    db.query(createProductsTable, (err) => {
-        if (err) console.error('❌ خطأ في إنشاء جدول المنتجات:', err.message);
-        else console.log('✅ جدول المنتجات جاهز.');
-    });
-
-    db.query(createOrdersTable, (err) => {
-        if (err) console.error('❌ خطأ في إنشاء جدول الطلبات:', err.message);
-        else console.log('✅ جدول الطلبات جاهز.');
+    const sql = `INSERT INTO products (name, category, price, old_price, image_url, badge, description) VALUES (?, ?, ?, ?, ?, ?, ?)`;
+    db.query(sql, [name, category, price, old_price, image_url, badge, description], (err, result) => {
+        if (err) {
+            console.error('❌ خطأ في الحفظ:', err.message);
+            return res.status(500).json({ error: err.message });
+        }
+        res.json({ success: true, message: 'تم حفظ المنتج بنجاح', id: result.insertId });
     });
 };
 
-db.getConnection((err, connection) => {
-    if (err) {
-        console.error('❌ خطأ في الاتصال بقاعدة البيانات:', err.message);
-    } else {
-        console.log('✅ تم الاتصال بقاعدة البيانات بنجاح!');
-        connection.release();
-        initDB();
-    }
-});
-
-// ================= API Endpoints =================
-
-// دعم المسارين لضمان عدم حدوث خطأ 404 سواً استخدمت /api/products أو /api/admin/products
 const handleGetProducts = (req, res) => {
     db.query('SELECT * FROM products ORDER BY id DESC', (err, results) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json(results);
-    });
-};
-
-const handleAddProduct = (req, res) => {
-    const { name, category, price, old_price, image_url, badge, description } = req.body;
-    const sql = `INSERT INTO products (name, category, price, old_price, image_url, badge, description) VALUES (?, ?, ?, ?, ?, ?, ?)`;
-    db.query(sql, [name, category, price, old_price, image_url, badge, description], (err, result) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json({ success: true, message: 'تم حفظ المنتج بنجاح', id: result.insertId });
     });
 };
 
