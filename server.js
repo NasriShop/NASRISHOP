@@ -18,36 +18,45 @@ const db = mysql.createPool({
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0,
-    ssl: {
-        rejectUnauthorized: false
-    }
+    ssl: { rejectUnauthorized: false }
 });
 
-// معالجة إضافة المنتج بمرونة لتفادي خطأ Column cannot be null
+const handleGetProducts = (req, res) => {
+    db.query('SELECT * FROM products ORDER BY id DESC', (err, results) => {
+        if (err) return res.status(500).json({ error: err.message });
+        
+        // توحيد أسماء الحقول لتفادي undefined في الواجهة
+        const formatted = results.map(p => ({
+            id: p.id,
+            name: p.name || 'منتج',
+            title: p.name || 'منتج',
+            category: p.category || '',
+            price: p.price || 0,
+            old_price: p.old_price || p.oldPrice || 0,
+            oldPrice: p.old_price || p.oldPrice || 0,
+            image_url: p.image_url || p.image || '',
+            image: p.image_url || p.image || '',
+            badge: p.badge || '',
+            description: p.description || ''
+        }));
+        
+        res.json(formatted);
+    });
+};
+
 const handleAddProduct = (req, res) => {
-    // قراءة البيانات بغض النظر عن المسمى المعتمد في الواجهة الأمامية
     const name = req.body.name || req.body.title || req.body.product_name || 'منتج جديد';
     const category = req.body.category || 'عام';
     const price = req.body.price || 0;
-    const old_price = req.body.old_price || req.body.oldPrice || null;
+    const old_price = req.body.old_price || req.body.oldPrice || 0;
     const image_url = req.body.image_url || req.body.image || req.body.imageUrl || '';
     const badge = req.body.badge || '';
     const description = req.body.description || '';
 
     const sql = `INSERT INTO products (name, category, price, old_price, image_url, badge, description) VALUES (?, ?, ?, ?, ?, ?, ?)`;
     db.query(sql, [name, category, price, old_price, image_url, badge, description], (err, result) => {
-        if (err) {
-            console.error('❌ خطأ في الحفظ:', err.message);
-            return res.status(500).json({ error: err.message });
-        }
-        res.json({ success: true, message: 'تم حفظ المنتج بنجاح', id: result.insertId });
-    });
-};
-
-const handleGetProducts = (req, res) => {
-    db.query('SELECT * FROM products ORDER BY id DESC', (err, results) => {
         if (err) return res.status(500).json({ error: err.message });
-        res.json(results);
+        res.json({ success: true, message: 'تم حفظ المنتج بنجاح', id: result.insertId });
     });
 };
 
