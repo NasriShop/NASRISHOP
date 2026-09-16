@@ -5,8 +5,9 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ limit: '50mb', extended: true }));
+// تحديد حجم البيانات بـ 10MB فقط لمنع البطء
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ limit: '10mb', extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 const db = mysql.createPool({
@@ -21,21 +22,21 @@ const db = mysql.createPool({
     ssl: { rejectUnauthorized: false }
 });
 
+// جلب المنتجات بشكل خفيف وسريع
 const handleGetProducts = (req, res) => {
-    db.query('SELECT * FROM products ORDER BY id DESC', (err, results) => {
+    db.query('SELECT id, name, category, price, old_price, image_url, badge, description FROM products ORDER BY id DESC', (err, results) => {
         if (err) return res.status(500).json({ error: err.message });
         
-        // توحيد أسماء الحقول لتفادي undefined في الواجهة
         const formatted = results.map(p => ({
             id: p.id,
             name: p.name || 'منتج',
             title: p.name || 'منتج',
             category: p.category || '',
             price: p.price || 0,
-            old_price: p.old_price || p.oldPrice || 0,
-            oldPrice: p.old_price || p.oldPrice || 0,
-            image_url: p.image_url || p.image || '',
-            image: p.image_url || p.image || '',
+            old_price: p.old_price || 0,
+            oldPrice: p.old_price || 0,
+            image_url: p.image_url || '',
+            image: p.image_url || '',
             badge: p.badge || '',
             description: p.description || ''
         }));
@@ -49,7 +50,7 @@ const handleAddProduct = (req, res) => {
     const category = req.body.category || 'عام';
     const price = req.body.price || 0;
     const old_price = req.body.old_price || req.body.oldPrice || 0;
-    const image_url = req.body.image_url || req.body.image || req.body.imageUrl || '';
+    let image_url = req.body.image_url || req.body.image || req.body.imageUrl || '';
     const badge = req.body.badge || '';
     const description = req.body.description || '';
 
@@ -66,9 +67,11 @@ app.get('/api/admin/products', handleGetProducts);
 app.post('/api/products', handleAddProduct);
 app.post('/api/admin/products', handleAddProduct);
 
+// معالجة الطلبات بشكل سريع
 app.post('/api/orders', (req, res) => {
     const { customer_name, phone, wilaya, baladia, product_name, price, shipping_price, total_price, shipping_type } = req.body;
     const sql = `INSERT INTO orders (customer_name, phone, wilaya, baladia, product_name, price, shipping_price, total_price, shipping_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+    
     db.query(sql, [customer_name, phone, wilaya, baladia, product_name, price, shipping_price, total_price, shipping_type], (err, result) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json({ success: true, message: 'تم تسجيل الطلب بنجاح', orderId: result.insertId });
